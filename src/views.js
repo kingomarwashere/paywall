@@ -182,15 +182,19 @@ export function readerPage(art, url, host) {
 }
 
 export function errorPage(url, message) {
+  const ranked = rankMethods(url).filter((m) => m.kind === 'external')
+  const hero = ranked[0] // most reliable external route (Archive.today for hard paywalls)
   return layout('Reader unavailable — PaywallFree', `
   <section class="section" style="padding-top:40px">
-    <h2>That one needs a different trick</h2>
+    <h2>This one needs a snapshot</h2>
     <div class="notice">
-      <p style="margin-top:0">Our reader couldn't pull clean text from this page${message ? ` <span class="mono" style="color:var(--muted)">(${esc(message)})</span>` : ''}. That's normal for hard paywalls and JavaScript-only sites — an archive snapshot usually works instead.</p>
+      <p style="margin-top:0">Our reader couldn't pull clean text from this page${message ? ` <span class="mono" style="color:var(--muted)">(${esc(message)})</span>` : ''}. Some publishers (FT, WSJ, Bloomberg) block every server fetch and render entirely in JavaScript — no proxy can reach the text. A community <b style="color:var(--gold)">archive snapshot</b> is the reliable way in.</p>
       <div class="target" style="margin:16px 0">🔗 ${esc(url)}</div>
+      ${hero ? `<a class="btn" style="font-size:17px" href="${hero.build(url)}" target="_blank" rel="noopener noreferrer">${hero.icon} Open ${esc(hero.name)} snapshot ↗</a>` : ''}
     </div>
   </section>
-  <div class="grid">${rankMethods(url).filter((m) => m.id !== 'reader').slice(0, 6).map((m) => methodCard(m, url)).join('')}</div>
+  <p class="lead" style="color:var(--muted);margin:24px 0 4px">Or try another route:</p>
+  <div class="grid">${ranked.slice(1, 6).concat(METHODS.filter((m) => m.id === 'proxy')).map((m) => methodCard(m, url)).join('')}</div>
   <section class="section" style="text-align:center;padding:10px 0 50px"><a class="btn ghost" href="/">← Try another link</a></section>
   `)
 }
