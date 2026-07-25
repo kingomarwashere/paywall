@@ -1,5 +1,5 @@
 import { Hono } from 'hono'
-import { fetchAsCrawler, fetchBest, stripPaywall, extractArticle } from './proxy.js'
+import { fetchAsCrawler, fetchBest, fetchFromWayback, stripPaywall, extractArticle } from './proxy.js'
 import { homePage, readPage, readerPage, errorPage, howPage, aboutPage, bookmarklet } from './views.js'
 
 const app = new Hono()
@@ -48,10 +48,19 @@ app.get('/reader', async (c) => {
       return c.redirect(`/proxy?url=${encodeURIComponent(url)}`)
     }
     const art = extractArticle(best.html, url)
-    if (!art.bodyHtml || art.wordCount < 80) {
-      return c.html(errorPage(url, 'not enough readable text'), 200)
+    if (art.bodyHtml && art.wordCount >= 80) {
+      return c.html(readerPage(art, url, HOST(c)))
     }
-    return c.html(readerPage(art, url, HOST(c)))
+    // Live site blocked us — fall back to a Wayback snapshot and read from that.
+    const wb = await fetchFromWayback(url)
+    if (wb) {
+      const art2 = extractArticle(wb.html, url)
+      if (art2.bodyHtml && art2.wordCount >= 80) {
+        art2.source = { name: 'Wayback Machine', timestamp: wb.timestamp, url: wb.snapshotUrl }
+        return c.html(readerPage(art2, url, HOST(c)))
+      }
+    }
+    return c.html(errorPage(url, 'not enough readable text'), 200)
   } catch (e) {
     return c.html(errorPage(url, e.message), 200)
   }

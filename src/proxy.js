@@ -64,6 +64,30 @@ export async function fetchBest(url, { ref = 'google', bots = ['google', 'facebo
   return best || fallback
 }
 
+// Fall back to the Internet Archive when the live site blocks every crawler
+// (FT, WSJ, etc.). Wayback is Worker-friendly, unlike archive.today which
+// challenges datacenter IPs. Returns { html, timestamp, snapshotUrl } or null.
+export async function fetchFromWayback(url) {
+  try {
+    const api = `https://archive.org/wayback/available?url=${encodeURIComponent(url)}`
+    const r = await fetch(api, { headers: { 'User-Agent': 'PaywallFree/1.0 (+https://paywall.theradicalparty.com)' }, cf: { cacheTtl: 600 } })
+    if (!r.ok) return null
+    const data = await r.json()
+    const snap = data && data.archived_snapshots && data.archived_snapshots.closest
+    if (!snap || !snap.available || !snap.url) return null
+    // `id_` gives the raw archived page without Wayback's toolbar/URL-rewriting — cleaner to extract.
+    const raw = snap.url.replace(/^http:/, 'https:').replace(/\/web\/(\d+)\//, '/web/$1id_/')
+    const res = await fetch(raw, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17 Safari/605.1.15' },
+      redirect: 'follow',
+    })
+    if (!res.ok) return null
+    if (!(res.headers.get('content-type') || '').includes('html')) return null
+    const html = await res.text()
+    return { html, timestamp: snap.timestamp, snapshotUrl: snap.url.replace(/^http:/, 'https:') }
+  } catch { return null }
+}
+
 // ---- Full-page proxy: keep the layout, drop the paywall ----
 
 const UNLOCK_CSS = `

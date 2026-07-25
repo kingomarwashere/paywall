@@ -58,7 +58,9 @@ footer{border-top:1px solid var(--line);margin-top:60px;padding:30px 0;color:var
 .legal{background:var(--raised);border:1px solid var(--line);border-left:3px solid var(--gold);border-radius:10px;padding:16px 20px;color:var(--muted);font-size:13px;margin:30px 0}
 .reader{max-width:720px}
 .reader h1.title{font-family:'Syne',sans-serif;font-size:clamp(28px,4vw,40px);line-height:1.1;letter-spacing:-1px;margin:26px 0 10px}
-.reader .meta{color:var(--muted);font-size:14px;font-family:'IBM Plex Mono',monospace;border-bottom:1px solid var(--line);padding-bottom:16px;margin-bottom:8px}
+.reader .meta{color:var(--muted);font-size:14px;font-family:'IBM Plex Mono',monospace;padding-bottom:12px}
+.reader .srcnote{font-size:13px;color:var(--gold);background:rgba(201,168,76,.08);border:1px solid rgba(201,168,76,.25);border-radius:9px;padding:9px 14px;margin:0 0 8px;border-bottom:1px solid var(--line)}
+.reader .srcnote a{color:var(--gold);font-weight:600}
 .reader .lead{font-size:19px;color:#d8d2c8;margin:18px 0}
 .reader .content{font-size:18px;line-height:1.75}
 .reader .content p{margin:0 0 22px}
@@ -171,6 +173,7 @@ export function readerPage(art, url, host) {
     ${art.image ? `<img class="heroimg" src="${esc(art.image)}" alt="" loading="lazy">` : ''}
     <h1 class="title">${esc(art.title || 'Untitled')}</h1>
     <div class="meta">${art.site ? esc(art.site) : safeHost(url)}${art.author ? ' · ' + esc(art.author) : ''}${art.published ? ' · ' + esc(art.published.slice(0, 10)) : ''}${art.wordCount ? ' · ' + art.wordCount + ' words' : ''}</div>
+    ${art.source ? `<div class="srcnote">🗄️ Read from a <a href="${esc(art.source.url)}" target="_blank" rel="noopener noreferrer">${esc(art.source.name)} snapshot</a>${art.source.timestamp ? ' archived ' + fmtTs(art.source.timestamp) : ''} — the live site blocked a direct fetch.</div>` : ''}
     ${art.description ? `<p class="lead">${esc(art.description)}</p>` : ''}
     <div class="content">${art.bodyHtml || ''}</div>
     <div class="toolbar" style="margin-top:36px">
@@ -255,6 +258,14 @@ export function aboutPage() {
 // ---- helpers ----
 
 export function safeHost(url) { try { return new URL(url).host.replace(/^www\./, '') } catch { return 'this page' } }
+
+// Wayback timestamp YYYYMMDDHHMMSS -> "5 Nov 2024"
+export function fmtTs(ts) {
+  const m = /^(\d{4})(\d{2})(\d{2})/.exec(ts || '')
+  if (!m) return ''
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+  return `${+m[3]} ${months[+m[2] - 1] || ''} ${m[1]}`
+}
 
 export function bookmarklet(host) {
   const code = `(function(){var u=encodeURIComponent(location.href);location.href='https://${host}/read?url='+u;})();`
