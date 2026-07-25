@@ -44,24 +44,25 @@ export async function fetchBest(url, { ref = 'google', bots = ['google', 'facebo
   const settled = await Promise.allSettled(bots.map((bot) => fetchAsCrawler(url, { ref, bot })))
   let best = null
   let bestScore = -1
-  let fallback = null // first usable response even if low-score (e.g. non-html)
+  let nonHtml = null // first usable non-html (pdf etc.) to hand through
   for (let i = 0; i < settled.length; i++) {
     if (settled[i].status !== 'fulfilled') continue
     const res = settled[i].value
+    const status = res.status
     const ct = res.headers.get('content-type') || ''
     if (!ct.includes('html')) {
-      if (!fallback) fallback = { html: null, headers: res.headers, contentType: ct, bot: bots[i], response: res }
+      if (status < 400 && !nonHtml) nonHtml = { html: null, headers: res.headers, contentType: ct, bot: bots[i], status, ok: true }
       continue
     }
     let html
     try { html = await res.text() } catch { continue }
+    if (status >= 400) continue // error page (404/401/403 body) — never treat as the article
     // Score: paragraph density dominates; length is a mild tie-breaker.
     const paras = (html.match(/<p[ >]/gi) || []).length
     const score = paras * 100 + Math.min(html.length / 1000, 400)
-    if (!fallback) fallback = { html, headers: res.headers, contentType: ct, bot: bots[i] }
-    if (score > bestScore) { bestScore = score; best = { html, headers: res.headers, contentType: ct, bot: bots[i] } }
+    if (score > bestScore) { bestScore = score; best = { html, headers: res.headers, contentType: ct, bot: bots[i], status, ok: true } }
   }
-  return best || fallback
+  return best || nonHtml // null if every crawler returned an error status
 }
 
 // Fall back to the Internet Archive when the live site blocks every crawler

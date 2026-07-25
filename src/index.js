@@ -43,15 +43,17 @@ app.get('/reader', async (c) => {
   try {
     const ref = c.req.query('ref') || 'google'
     const best = await fetchBest(url, { ref })
-    if (!best) return c.html(errorPage(url, 'could not reach the page'), 200)
-    if (!best.html || !best.contentType.includes('html')) {
+    // Non-HTML (pdf etc.) that we could reach — hand it to the proxy.
+    if (best && !best.html && best.contentType && !best.contentType.includes('html')) {
       return c.redirect(`/proxy?url=${encodeURIComponent(url)}`)
     }
-    const art = extractArticle(best.html, url)
-    if (art.bodyHtml && art.wordCount >= 80) {
-      return c.html(readerPage(art, url, HOST(c)))
+    if (best && best.html) {
+      const art = extractArticle(best.html, url)
+      if (art.bodyHtml && art.wordCount >= 80) {
+        return c.html(readerPage(art, url, HOST(c)))
+      }
     }
-    // Live site blocked us — fall back to a Wayback snapshot and read from that.
+    // Live site blocked us (or returned only an error/paywall stub) — fall back to a Wayback snapshot.
     const wb = await fetchFromWayback(url)
     if (wb) {
       const art2 = extractArticle(wb.html, url)
