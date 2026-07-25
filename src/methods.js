@@ -100,14 +100,27 @@ export const METHODS = [
   },
 ]
 
+// Hard paywalls that block Googlebot / don't do the SEO soft-paywall trick — for
+// these, archive snapshots are the most reliable route, so bubble them up.
+const HARD_PAYWALLS = [
+  'afr.com', 'wsj.com', 'ft.com', 'bloomberg.com', 'nytimes.com', 'economist.com',
+  'theaustralian.com.au', 'thetimes.co.uk', 'telegraph.co.uk', 'washingtonpost.com',
+  'newyorker.com', 'wired.com', 'businessinsider.com', 'seekingalpha.com',
+  'barrons.com', 'foreignpolicy.com', 'thetimes.com', 'nzherald.co.nz',
+]
+
 // Order methods so domain-specific + likely-to-work ones bubble to the top.
 export function rankMethods(url) {
   let host = ''
   try { host = new URL(url).host.replace(/^www\./, '') } catch {}
+  const isHard = HARD_PAYWALLS.some((d) => host === d || host.endsWith('.' + d))
   const scored = METHODS.map((m) => {
     let score = 0
     if (m.domains && m.domains.some((d) => host === d || host.endsWith('.' + d))) score += 100
-    if (m.kind === 'internal') score += 10
+    if (m.kind === 'internal') score += 60
+    // For hard paywalls, snapshots beat our crawler fetch — lead with them.
+    if (isHard && m.id === 'archive-ph') score += 70
+    if (isHard && m.id === 'wayback') score += 65
     return { m, score }
   })
   // stable sort by score desc, preserving original order for ties

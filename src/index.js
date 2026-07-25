@@ -1,5 +1,5 @@
 import { Hono } from 'hono'
-import { fetchAsCrawler, stripPaywall, extractArticle } from './proxy.js'
+import { fetchAsCrawler, fetchBest, stripPaywall, extractArticle } from './proxy.js'
 import { homePage, readPage, readerPage, errorPage, howPage, aboutPage, bookmarklet } from './views.js'
 
 const app = new Hono()
@@ -36,22 +36,18 @@ app.get('/read', (c) => {
   return c.html(readPage(url, HOST(c)))
 })
 
-// Clean reader: fetch as crawler, extract article text.
+// Clean reader: fetch as several crawlers, keep the richest copy, extract article text.
 app.get('/reader', async (c) => {
   const url = normalizeUrl(c.req.query('url'))
   if (!url) return c.redirect('/')
   try {
-    const res = await fetchAsCrawler(url, { ref: c.req.query('ref') || 'google' })
-    const ct = res.headers.get('content-type') || ''
-    if (!res.ok && res.status !== 403 && res.status !== 401) {
-      return c.html(errorPage(url, `origin returned ${res.status}`), 200)
-    }
-    if (!ct.includes('html')) {
-      // non-HTML (pdf, etc.) — just hand it through
+    const ref = c.req.query('ref') || 'google'
+    const best = await fetchBest(url, { ref })
+    if (!best) return c.html(errorPage(url, 'could not reach the page'), 200)
+    if (!best.html || !best.contentType.includes('html')) {
       return c.redirect(`/proxy?url=${encodeURIComponent(url)}`)
     }
-    const html = await res.text()
-    const art = extractArticle(html, url)
+    const art = extractArticle(best.html, url)
     if (!art.bodyHtml || art.wordCount < 80) {
       return c.html(errorPage(url, 'not enough readable text'), 200)
     }
@@ -61,20 +57,24 @@ app.get('/reader', async (c) => {
   }
 })
 
-// Full-page proxy: fetch as crawler, strip paywall scripts/overlays, keep layout.
+// Full-page proxy: fetch as several crawlers, keep the richest copy, strip the paywall.
 app.get('/proxy', async (c) => {
   const url = normalizeUrl(c.req.query('url'))
   if (!url) return c.redirect('/')
   try {
-    const res = await fetchAsCrawler(url, { ref: c.req.query('ref') || 'google' })
-    const ct = res.headers.get('content-type') || ''
-    if (!ct.includes('html')) {
-      // pass binary/other content straight through
-      const h = new Headers(res.headers)
+    const ref = c.req.query('ref') || 'google'
+    // ref=google means "arrive from Google" — honour it with a single Googlebot fetch.
+    const best = c.req.query('ref') === 'google' && c.req.query('single')
+      ? await fetchBest(url, { ref, bots: ['google'] })
+      : await fetchBest(url, { ref })
+    if (!best) return c.html(errorPage(url, 'could not reach the page'), 200)
+    if (!best.html || !best.contentType.includes('html')) {
+      const single = await fetchAsCrawler(url, { ref, bot: best.bot || 'google' })
+      const h = new Headers(single.headers)
       h.delete('content-security-policy'); h.delete('x-frame-options')
-      return new Response(res.body, { status: res.status, headers: h })
+      return new Response(single.body, { status: single.status, headers: h })
     }
-    return stripPaywall(res, url)
+    return stripPaywall(best.html, best.headers, url)
   } catch (e) {
     return c.html(errorPage(url, e.message), 200)
   }

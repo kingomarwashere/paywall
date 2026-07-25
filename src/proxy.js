@@ -7,6 +7,8 @@
 const CRAWLER_UAS = {
   google: 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
   bing: 'Mozilla/5.0 (compatible; bingbot/2.0; +http://www.bing.com/bingbot.htm)',
+  // Many hard paywalls (AFR, some News Corp titles) block Googlebot by IP but still
+  // serve the FULL article to social link-preview crawlers. Try these too.
   facebook: 'facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)',
   twitter: 'Twitterbot/1.0',
 }
@@ -32,6 +34,34 @@ export async function fetchAsCrawler(url, { ref = 'google', bot = 'google' } = {
     cf: { cacheTtl: 300, cacheEverything: false },
   })
   return res
+}
+
+// Fetch the URL as several crawler identities at once and keep the richest HTML.
+// Returns { html, headers, contentType, bot } or null on total failure.
+// `bots` defaults to a search-crawler + two social crawlers — the combination that
+// covers both SEO soft-paywalls (Googlebot) and social-only gates (AFR etc.).
+export async function fetchBest(url, { ref = 'google', bots = ['google', 'facebook', 'bing'] } = {}) {
+  const settled = await Promise.allSettled(bots.map((bot) => fetchAsCrawler(url, { ref, bot })))
+  let best = null
+  let bestScore = -1
+  let fallback = null // first usable response even if low-score (e.g. non-html)
+  for (let i = 0; i < settled.length; i++) {
+    if (settled[i].status !== 'fulfilled') continue
+    const res = settled[i].value
+    const ct = res.headers.get('content-type') || ''
+    if (!ct.includes('html')) {
+      if (!fallback) fallback = { html: null, headers: res.headers, contentType: ct, bot: bots[i], response: res }
+      continue
+    }
+    let html
+    try { html = await res.text() } catch { continue }
+    // Score: paragraph density dominates; length is a mild tie-breaker.
+    const paras = (html.match(/<p[ >]/gi) || []).length
+    const score = paras * 100 + Math.min(html.length / 1000, 400)
+    if (!fallback) fallback = { html, headers: res.headers, contentType: ct, bot: bots[i] }
+    if (score > bestScore) { bestScore = score; best = { html, headers: res.headers, contentType: ct, bot: bots[i] } }
+  }
+  return best || fallback
 }
 
 // ---- Full-page proxy: keep the layout, drop the paywall ----
@@ -72,7 +102,8 @@ const UNLOCK_JS = `(function(){
   } catch(e){}
 })();`
 
-export function stripPaywall(res, url) {
+export function stripPaywall(html, headers, url) {
+  const res = new Response(html, { headers })
   const banner = `<div style="position:sticky;top:0;z-index:2147483647;background:#0B0B09;color:#F0EDE6;font:600 13px/1.4 system-ui,sans-serif;padding:8px 14px;border-bottom:2px solid #FF2D55;display:flex;gap:12px;align-items:center;justify-content:center">
     <span style="color:#FF2D55">RADICAL</span> paywall bypass · <a href="/read?url=${encodeURIComponent(url)}" style="color:#FF6B82">try another method</a> · <a href="/reader?url=${encodeURIComponent(url)}" style="color:#FF6B82">reader view</a>
   </div>`
@@ -96,12 +127,13 @@ export function stripPaywall(res, url) {
     })
 
   const out = rewriter.transform(res)
-  const headers = new Headers(out.headers)
-  headers.delete('content-security-policy')
-  headers.delete('content-security-policy-report-only')
-  headers.delete('x-frame-options')
-  headers.set('cache-control', 'public, max-age=300')
-  return new Response(out.body, { status: 200, headers })
+  const outHeaders = new Headers(out.headers)
+  outHeaders.delete('content-security-policy')
+  outHeaders.delete('content-security-policy-report-only')
+  outHeaders.delete('x-frame-options')
+  outHeaders.set('content-type', 'text/html; charset=utf-8')
+  outHeaders.set('cache-control', 'public, max-age=300')
+  return new Response(out.body, { status: 200, headers: outHeaders })
 }
 
 // ---- Reader mode: extract the article into clean text ----
