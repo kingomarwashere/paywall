@@ -68,24 +68,29 @@ export async function fetchBest(url, { ref = 'google', bots = ['google', 'facebo
 // Fall back to the Internet Archive when the live site blocks every crawler
 // (FT, WSJ, etc.). Wayback is Worker-friendly, unlike archive.today which
 // challenges datacenter IPs. Returns { html, timestamp, snapshotUrl } or null.
+const WB_UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17 Safari/605.1.15'
+
+// Best-effort: read the article from the Internet Archive when the live site blocks
+// every crawler. NOTE: archive.org rate-limits shared Cloudflare/datacenter egress IPs
+// (429), so this succeeds only when the Worker isn't currently throttled — it's a bonus,
+// not a guarantee. On failure we fall through to the user-side archive buttons, which use
+// the reader's own (un-throttled) browser IP. Single fast attempt to avoid adding latency.
 export async function fetchFromWayback(url) {
+  // `/web/<ts>id_/<url>` 302s to the closest raw capture (id_ = no toolbar/rewriting).
+  // A far-future timestamp resolves to the most recent capture; 404 if none exist.
+  const raw = `https://web.archive.org/web/29991231id_/${url}`
   try {
-    const api = `https://archive.org/wayback/available?url=${encodeURIComponent(url)}`
-    const r = await fetch(api, { headers: { 'User-Agent': 'PaywallFree/1.0 (+https://paywall.theradicalparty.com)' }, cf: { cacheTtl: 600 } })
-    if (!r.ok) return null
-    const data = await r.json()
-    const snap = data && data.archived_snapshots && data.archived_snapshots.closest
-    if (!snap || !snap.available || !snap.url) return null
-    // `id_` gives the raw archived page without Wayback's toolbar/URL-rewriting — cleaner to extract.
-    const raw = snap.url.replace(/^http:/, 'https:').replace(/\/web\/(\d+)\//, '/web/$1id_/')
-    const res = await fetch(raw, {
-      headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17 Safari/605.1.15' },
-      redirect: 'follow',
-    })
-    if (!res.ok) return null
+    const ctl = new AbortController()
+    const timer = setTimeout(() => ctl.abort(), 6000)
+    const res = await fetch(raw, { headers: { 'User-Agent': WB_UA }, redirect: 'follow', signal: ctl.signal })
+    clearTimeout(timer)
+    if (!res.ok) return null // 404 (not archived) or 429 (throttled)
     if (!(res.headers.get('content-type') || '').includes('html')) return null
     const html = await res.text()
-    return { html, timestamp: snap.timestamp, snapshotUrl: snap.url.replace(/^http:/, 'https:') }
+    // Reject Wayback's own "not archived / calendar" placeholder pages.
+    if (/<title>\s*Wayback Machine\s*<\/title>/i.test(html) && (html.match(/<p[ >]/gi) || []).length < 8) return null
+    const ts = (/\/web\/(\d{4,14})/.exec(res.url) || [])[1] || ''
+    return { html, timestamp: ts, snapshotUrl: res.url.replace(/(\/web\/\d+)id_\//, '$1/') }
   } catch { return null }
 }
 
