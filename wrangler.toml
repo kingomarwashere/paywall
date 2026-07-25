@@ -1,0 +1,9 @@
+name = "paywall"
+main = "src/index.js"
+compatibility_date = "2024-11-01"
+compatibility_flags = ["nodejs_compat"]
+
+routes = [{ pattern = "paywall.theradicalparty.com", custom_domain = true }]
+
+[observability]
+enabled = true
