@@ -134,8 +134,8 @@ const UNLOCK_JS = `(function(){
 
 export function stripPaywall(html, headers, url) {
   const res = new Response(html, { headers })
-  const banner = `<div style="position:sticky;top:0;z-index:2147483647;background:#0B0B09;color:#F0EDE6;font:600 13px/1.4 system-ui,sans-serif;padding:8px 14px;border-bottom:2px solid #FF2D55;display:flex;gap:12px;align-items:center;justify-content:center">
-    <span style="color:#FF2D55">RADICAL</span> paywall bypass · <a href="/read?url=${encodeURIComponent(url)}" style="color:#FF6B82">try another method</a> · <a href="/reader?url=${encodeURIComponent(url)}" style="color:#FF6B82">reader view</a>
+  const banner = `<div style="position:sticky;top:0;z-index:2147483647;background:#0B0B09;color:#F0EDE6;font:600 13px/1.4 system-ui,sans-serif;padding:8px 14px;border-bottom:2px solid #ff0099;display:flex;gap:12px;align-items:center;justify-content:center">
+    <span style="color:#ff0099">RADICAL</span> paywall bypass · <a href="/read?url=${encodeURIComponent(url)}" style="color:#ff33aa">try another method</a> · <a href="/reader?url=${encodeURIComponent(url)}" style="color:#ff33aa">reader view</a>
   </div>`
 
   const rewriter = new HTMLRewriter()
